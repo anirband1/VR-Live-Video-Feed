@@ -55,7 +55,7 @@ Before you begin, ensure you have:
 ### 1. Setup Mobile Publisher
 1. **Create LiveKit Room:**
 
-- Go to [LiveKit]([url](https://meet.livekit.io/?tab=custom)) and create a room
+- Go to LiveKit (https://meet.livekit.io/?tab=custom) and create a room
 - Save the room name (You'll need to enter this in the game)
 
 2. **Launch app** on Quest headset
