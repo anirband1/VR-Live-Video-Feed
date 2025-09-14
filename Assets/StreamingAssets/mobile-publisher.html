@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Mobile Camera Publisher - XR Stream</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Try local file first, then CDN fallback -->
+  <script src="./livekit-client.umd.js" onerror="loadFromCDN()"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 15px;
+      margin: 0;
+      background: #1a1a1a;
+      color: white;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #4CAF50;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 5px;
+      background: #333;
+      color: white;
+      font-size: 16px;
+      box-sizing: border-box;
+      margin: 10px 0;
+    }
+
+    button {
+      width: 100%;
+      padding: 15px;
+      font-size: 18px;
+      font-weight: bold;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+
+    .connect-btn {
+      background: #4CAF50;
+      color: white;
+    }
+
+    .disconnect-btn {
+      background: #f44336;
+      color: white;
+    }
+
+    .status {
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 5px;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    .status.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status.disconnected {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    video {
+      width: 100%;
+      max-width: 400px;
+      border-radius: 10px;
+      margin: 20px auto;
+      display: block;
+      background: #000;
+    }
+
+    .debug {
+      background: #333;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 12px;
+      margin: 10px 0;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Mobile Camera Publisher</h1>
+
+    <div id="debug" class="debug">
+      Debug Log:<br>
+      - Page loaded<br>
+      - Checking SDK...<br>
+    </div>
+
+    <input type="text" id="serverUrl" value="wss://banthry1-3hdse7yt.livekit.cloud" />
+    <input type="text" id="roomName" value="xr_stream_test" />
+    <input type="password" id="publisherToken" placeholder="Paste mobile publisher token here" />
+
+    <select id="cameraSelect">
+      <option value="environment">Back Camera</option>
+      <option value="user">Front Camera</option>
+    </select>
+
+    <button id="connectBtn" class="connect-btn" onclick="startPublishing()">
+      Start Publishing Camera
+    </button>
+
+    <button id="disconnectBtn" class="disconnect-btn" onclick="stopPublishing()" style="display: none;">
+      Stop Publishing
+    </button>
+
+    <div id="status" class="status disconnected">
+      Ready to publish - Enter token and click Start
+    </div>
+
+    <video id="localVideo" autoplay muted playsinline></video>
+  </div>
+
+  <script>
+    let room = null;
+    let isConnected = false;
+    let currentFacingMode = 'environment';
+    let debugLog = [];
+
+    function addDebugLog(message) {
+      debugLog.push(new Date().toLocaleTimeString() + ': ' + message);
+      document.getElementById('debug').innerHTML = 'Debug Log:<br>' + debugLog.slice(-10).join('<br>');
+      console.log(message);
+    }
+
+    function loadFromCDN() {
+      addDebugLog('Local file failed, trying CDN...');
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/livekit-client@latest/dist/livekit-client.umd.js';
+      script.onload = function () {
+        addDebugLog('CDN script loaded');
+        checkLiveKitSDK();
+      };
+      script.onerror = function () {
+        addDebugLog('CDN also failed - no internet or CDN blocked');
+        updateStatus('Cannot load LiveKit SDK - check internet connection', 'disconnected');
+      };
+      document.head.appendChild(script);
+    }
+
+    function checkLiveKitSDK() {
+      if (typeof LiveKit !== 'undefined') {
+        addDebugLog('LiveKit SDK loaded successfully!');
+        updateStatus('📱 Ready to publish - Enter token and click Start', 'disconnected');
+        return true;
+      } else {
+        addDebugLog('LiveKit object not found after script load');
+        updateStatus('LiveKit SDK initialization failed', 'disconnected');
+        return false;
+      }
+    }
+
+    // Check SDK when page loads
+    document.addEventListener('DOMContentLoaded', function () {
+      addDebugLog('Page DOM loaded');
+      setTimeout(function () {
+        if (typeof LiveKit === 'undefined') {
+          addDebugLog('LiveKit not found, trying CDN fallback...');
+          loadFromCDN();
+        } else {
+          checkLiveKitSDK();
+        }
+      }, 1000);
+    });
+
+    async function startPublishing() {
+      addDebugLog('Start publishing clicked');
+
+      try {
+        // Enhanced SDK check
+        if (typeof LiveKit === 'undefined') {
+          addDebugLog('LiveKit SDK not available');
+          alert('LiveKit SDK not loaded. Please check your internet connection and refresh.');
+          return;
+        }
+
+        addDebugLog('LiveKit SDK found, proceeding...');
+
+        const serverUrl = document.getElementById('serverUrl').value.trim();
+        const roomName = document.getElementById('roomName').value.trim();
+        const publisherToken = document.getElementById('publisherToken').value.trim();
+
+        if (!serverUrl || !roomName || !publisherToken) {
+          addDebugLog('Missing required fields');
+          alert('Please fill in all fields');
+          return;
+        }
+
+        addDebugLog('Creating room...');
+        updateStatus('🔄 Connecting to LiveKit server...', 'connecting');
+
+        room = new LiveKit.Room();
+
+        addDebugLog('Connecting to: ' + serverUrl);
+        await room.connect(serverUrl, publisherToken);
+
+        addDebugLog('Connected! Getting camera stream...');
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            facingMode: currentFacingMode
+          },
+          audio: true
+        });
+
+        addDebugLog('Camera stream obtained');
+        document.getElementById('localVideo').srcObject = stream;
+
+        const videoTrack = stream.getVideoTracks()[0];
+        const audioTrack = stream.getAudioTracks()[0];
+
+        addDebugLog('Publishing tracks...');
+
+        await room.localParticipant.publishTrack(videoTrack, {
+          name: 'mobile_camera',
+          source: LiveKit.Track.Source.Camera
+        });
+
+        await room.localParticipant.publishTrack(audioTrack, {
+          name: 'mobile_microphone',
+          source: LiveKit.Track.Source.Microphone
+        });
+
+        isConnected = true;
+        addDebugLog('Successfully publishing to XR!');
+        updateStatus('Publishing camera to XR - Stream is live!', 'connected');
+
+        document.getElementById('connectBtn').style.display = 'none';
+        document.getElementById('disconnectBtn').style.display = 'inline-block';
+
+      } catch (error) {
+        addDebugLog('Error: ' + error.message);
+        console.error('Publishing error:', error);
+        updateStatus(`Error: ${error.message}`, 'disconnected');
+      }
+    }
+
+    async function stopPublishing() {
+      try {
+        addDebugLog('Stopping publication...');
+        updateStatus('Stopping publication...', 'connecting');
+
+        if (room) {
+          room.disconnect();
+          room = null;
+        }
+
+        const localVideo = document.getElementById('localVideo');
+        if (localVideo.srcObject) {
+          localVideo.srcObject.getTracks().forEach(track => track.stop());
+          localVideo.srcObject = null;
+        }
+
+        isConnected = false;
+        addDebugLog('Disconnected successfully');
+        updateStatus('Disconnected - Ready to publish', 'disconnected');
+
+        document.getElementById('connectBtn').style.display = 'inline-block';
+        document.getElementById('disconnectBtn').style.display = 'none';
+
+      } catch (error) {
+        addDebugLog('Disconnect error: ' + error.message);
+        console.error('Disconnect error:', error);
+        updateStatus(`Disconnect error: ${error.message}`, 'disconnected');
+      }
+    }
+
+    function updateStatus(message, type) {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
+      statusEl.className = `status ${type}`;
+    }
+  </script>
+</body>
+
+</html>
